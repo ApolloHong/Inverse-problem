@@ -1,4 +1,7 @@
 # Inverse-problem
+__author__ = 'Junyu Pan', 'Lizhan Hong'
+
+
 # Apolloid 1.0
 ## This is the instruction of for POD process in reactorDt第一代设计
 
