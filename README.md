@@ -1,5 +1,5 @@
 # Inverse-problem
-__author__ = 'Junyu Pan', 'Lizhan Hong'
+__author__ =  'Lizhan Hong', 'Junyu Pan',
 
 
 # Apolloid 1.0
