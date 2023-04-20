@@ -1,6 +1,5 @@
-# Inverse-problem
-__author__ =  'Lizhan Hong', 'Junyu Pan',
 
+author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan',
 
 # Apolloid 1.0
 ## This is the instruction of for POD process in reactorDt第一代设计
@@ -47,10 +46,10 @@ __author__ =  'Lizhan Hong', 'Junyu Pan',
 
 
 # Apolloid 2.0
-## FapyKnnFor.py
-## FapyKnnInv.py
-## FapyPro.py : only being used once
-## FapyProSub.py : can be used for a seconde time
+## KnnFor.py
+## KnnInv.py
+## Pro.py : only being used once
+## ProSub.py : can be used for a seconde time
 ## Read.py
 ## 
 
@@ -67,6 +66,7 @@ __author__ =  'Lizhan Hong', 'Junyu Pan',
 
 ### dimention of matrix in files
 + 'inpower18480.out': (18480, 9),
++ 'inpower18480_4.txt': (18480, 4)
 + 'power8480.txt': (8480, 4956)
 + 'power10000.txt': (1000, 4956)
 + 'InpowerData.txt': (23997, 4)
@@ -87,11 +87,15 @@ __author__ =  'Lizhan Hong', 'Junyu Pan',
 ## Apolloid 2.0
 
 ### Input
++ 'inpower18480.out': (18480, 9),
++ 'inpower18480_4.txt': (18480, 4)
 + 'inpower5517.out': (5517, 9) 
 + 'power5517.out': (5517, 4956) 
 + 'powerIAEA5517.txt': (5517, 1456)
 + 'powerIAEA8480.txt': (8480, 1456)
 + 'powerIAEA10000.txt': (10000, 1456)
++ 'powerIAEA18480coef.txt': (18480, 50)
++ 'powerIAEA18480basis.txt': (50,1456)
 + 'alpha5517.txt': (5517,50)
 + 'q5517.txt': (50,4956)
 + 'Y5517.txt': (5517, 84)
@@ -99,8 +103,16 @@ __author__ =  'Lizhan Hong', 'Junyu Pan',
 + 'alpha10.txt': (10,50)
 + 'Y10.txt': (10,84)
 + 'Inpower10.txt': (10,4)
++ 'sensors.txt': (84, 1456)
++ 'knntest_input.pkl': (4620, 4)
++ 'knntest_output.pkl': (4620, 50)
 
-
+### data in inverse_problem_predict
++ parameters.shape : (18480, 4)
++ field.shape : (18480, 1456) 
++ observations.shape : (18480, 84)  
++ sensors.shape : (84, 1456) 
++ r : the dimension of modes (50 in our case)   nc is the iterable dimension for finding the optimal r.
 
 
 # Results
@@ -136,4 +148,9 @@ For instance:
 |     |     | 153 | 154 | 155 | 156 | 157 | 158 | 159 | 160 | 161 | 162 | 163 |     |      |
 |     |     |     | 164 | 165 | 166 | 167 | 168 | 169 | 170 | 171 | 172 |     |     |      |
 |     |     |     |     |     | 173 | 174 | 175 | 176 | 177 |     |     |     |     |      |
+
+
+
+
+
 
