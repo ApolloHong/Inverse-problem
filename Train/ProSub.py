@@ -49,7 +49,7 @@ def reactorGetSectionIndex(pathControl:str):
     return lst
 
 
-def normalize(data):  # 归一
+def normalize(data):
     x = data.shape[0]
     y = data.shape[1]
     scaling_index = []
@@ -65,6 +65,27 @@ def normalize(data):  # 归一
 
     return norm , np.asarray(scaling_index)
 
+
+def StoreDictToExcel(dct:dict, topath:str):
+    '''
+
+    :param dct: the dictionary we want to transform
+    :param topath: the pathname
+    :return:
+    '''
+    # 将字典列表转换为DataFrame
+    dct = pd.DataFrame(list(dct))
+    file_path = pd.ExcelWriter(topath)
+    # 替换空单元格
+    dct.fillna(' ', inplace=True)
+    # 输出
+    dct.to_excel(file_path, encoding='utf-8', index=False)
+    # 保存表格
+    file_path.save()
+
+
+def train_test_split_Ours():
+    pass
 
 
 def standardize_matrix_z_score(X):

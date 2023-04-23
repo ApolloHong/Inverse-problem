@@ -54,34 +54,6 @@ def load_power18480_pod(dim=40):
     coefficient = pd.read_csv('../Input/powerIAEA18480coef.txt', header=None, delimiter=' ', dtype=float)
     return basis, coefficient
 
-def trainKnn(k = 4):
-    # 导入数据
-    input_data_mu = np.loadtxt('../Input/inpower18480_4.txt')
-    # standerd = StandardScaler()
-    # input_data_mu = standerd.fit(input_data_mu)
-    input_data_mu = normalize(input_data_mu)
-    input_data_alpha = np.loadtxt(r'../Input/powerIAEA18480coef.txt')
-
-
-    # 划分数据集
-    train_input, test_input, train_output, test_output = train_test_split(input_data_mu, input_data_alpha,
-                                                                          test_size=0.25, random_state=42)
-
-    # Train a KNN model on the data
-    KNN_model_alpha = KNeighborsRegressor(n_neighbors=k, weights='distance', p=1, metric='minkowski')
-    KNN_model_alpha.fit(train_input, train_output)
-
-    # Save the model to a file using pickle
-    with open('../Input/knn4.pkl', 'wb') as file:
-        joblib.dump(KNN_model_alpha, file)
-    # Save the test_input to a file using pickle
-    with open('../Input/knntest_input.pkl', 'wb') as file:
-        joblib.dump(test_input, file)
-    # Save the test_output to a file using pickle
-    with open('../Input/knntest_output.pkl', 'wb') as file:
-        joblib.dump(test_output, file)
-
-
 
 def field_error_L2(field, field_true):
     '''
@@ -330,9 +302,10 @@ def predict_parameter_from_observation(argv):
         print("sigma: " + str(sigma))
         # add noise to observation
         observations = observations + np.random.normal(0, sigma/100.0, observations.shape) * observations
-        # split train, validate, test dataset
+        # split train dataset, test dataset
         ob_train_full, ob_test, in_train_full, in_test = train_test_split(observations, parameters, test_size=0.05, \
                                                                           random_state=42)
+        # split validate dataset and the train dataset
         ob_train, ob_val, in_train, in_val = train_test_split(ob_train_full, in_train_full, test_size=0.2, random_state=42)
         # train models
         for nc in ncs:
@@ -352,11 +325,7 @@ def predict_parameter_from_observation(argv):
     now = datetime.datetime.now().strftime("%m%d") # get the date when it is administered.
     print(f'nc_start = {str(nc_start)},now = {now}')
 
-    # In summary, while pd.to_pickle() is optimized for saving and loading Pandas data structures,
-    # joblib.dump() is a more general-purpose serialization method that can handle a wider
-    # range of Python objects.
-    # pd.to_pickle(results, 'Input/' + str(nc_start) + 'inverse_problem' + now + '.pkl')
-    # joblib.dump(models, 'Input/' + str(nc_start) + 'inverse_problem_models' + now + ".pkl")
+
     pd.to_pickle(results, '../Input/' + 'inverse_problem' + '.pkl')
     joblib.dump(models, '../Input/' + 'inverse_problem_models' + ".pkl")
 

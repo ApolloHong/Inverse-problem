@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # @Time    : 2023/4/19
-# @Author  : Lizhan Hong
+# @Author  : 'Lizhan Hong'
 
 import matplotlib.pyplot as plt
 import numpy as np
 import joblib
+import pandas as pd
 import scipy
 import time
 from sko.PSO import PSO
@@ -20,6 +21,7 @@ from sklearn.svm import SVC
 from scipy.optimize import differential_evolution
 from OptimaizeSub import *
 from ProSub import *
+from CS import *
 
 
 def ex1():
@@ -94,8 +96,7 @@ def DeOurs(lower_bound = -5, upper_bound = 5, fitnessfunction=fitness_sphere, mu
     print("Best solution found: ", best_solution)
     print("Fitness value: ", fitness_values[best_idx])
 
-
-
+# old version
 def DeSklearnOneSample(nSample, strategy:str, x0 = np.array([5,0,60,295]), r = 50):
     '''
 
@@ -112,7 +113,7 @@ def DeSklearnOneSample(nSample, strategy:str, x0 = np.array([5,0,60,295]), r = 5
     # bounds = get_bounds(y, offsets=[20, 100, 15], limits=limits) + [(290, 300)]
     bounds = limits
     parameters, field, observations, sensors = load_power18480()
-    basis, _ = load_power18480_pod(r)
+    basis, _ = load_power18480_pod()
     basis = basis.to_numpy()
 
     # model = Pipeline([('ss', StandardScaler()),
@@ -139,7 +140,7 @@ def DeSklearnOneSample(nSample, strategy:str, x0 = np.array([5,0,60,295]), r = 5
     #       f' {parameters.iloc[nSample]}')
     print(f'The error of strategy {strategy} is {x - parameters.iloc[nSample]}')
 
-def DeSklearnGlobal(strategy:str,num = 100, x0 = np.array([5,0,60,295]), r = 50):
+def DeSklearnGlobal(strategy:str,num = 1, x0 = np.array([5,0,60,295]), r = 50):
     '''
 
     :param strategy: the mutation strategy we use
@@ -153,59 +154,82 @@ def DeSklearnGlobal(strategy:str,num = 100, x0 = np.array([5,0,60,295]), r = 50)
     knn = joblib.load('../Input/knn4.pkl')
     knntest_input = joblib.load('../Input/knntest_input.pkl') # mu
     knntest_output = joblib.load('../Input/knntest_output.pkl') # alpha
+    scalingNor = np.loadtxt('../Input/scalingNor.txt')
     numtest = len(knntest_input[:,0])
-    # print(knntest_input.shape,knntest_output.shape, numtest)
     limits = np.array([[0, 615], [0, 2500], [20, 100], [290, 300]])
-    # bounds = get_bounds(y, offsets=[20, 100, 15], limits=limits) + [(290, 300)]
-    bounds = limits
+    dim = len(limits)
+    limitsNor = np.array([ [limits[_][0]/scalingNor[_,_], limits[_][1]/scalingNor[_,_]] for _ in range(dim)])
+    print(limitsNor)
     parameters, field, observations, sensors = load_power18480()
-    basis, _ = load_power18480_pod(r)
+    basis, _ = load_power18480_pod()
     basis = basis.to_numpy()
+    sensors.to_numpy()
     obs_test = knntest_output @ basis @ sensors.T
-    # print(obs_test)
-
-    # generate initial population
-    pop0 = initialize_pop(60, bounds, x=x0)
+    obs_test.to_numpy()
 
 
     # make zeroes in shape of the input parameter
-    error = np.zeros( (len(knntest_input[0]) , 1) )
+    # error = np.zeros( (len(knntest_input[0]) , 1) )
+
+    # create the result data
+    columns = ['time', 'st', 'pw', 'bu', 'tn', 'fitnessfunc']
+    index = ['the predicted parameter', 'the true data', 'the error']
+    results = pd.DataFrame(np.zeros((len(index), len(columns))),
+                           columns=columns,
+                           index=index)
     for i in range(num):
-        # print(obs_test)
-        obs = observations[i * 10 , :]
-        # obs = obs.T
-        # print(obs.shape)
-        # print(observations[15, :].shape)
+        obs = obs_test.iloc[i,:]
+        obs = np.array(obs)
+        # print(obs.shape,observations[i,:].shape)
         mu_true = knntest_input[i,:]
-        # obs = observations[15,:]
+        x0 = mu_true
+        # generate initial population
+        pop0 = initialize_pop(60, limitsNor, x=x0)
+
+        # begin training
+        t0 = time.time()
         # observation error ( the fitness function , from mu ∈ R^4 to R^1)
         fobj = lambda p: reconstruct_observation_error_from_input(p, knn, basis, obs, sensors)
-        result = differential_evolution(fobj, limits,strategy= strategy, seed=42, polish=False, x0=x0, init=pop0)
+        result = differential_evolution(fobj, limitsNor,strategy= strategy, seed=42, polish=False, x0=x0, init=pop0)
         fun, message, nfev, nit, success, x =\
             result.fun, result.message, result.nfev, result.nit, result.success, result.x
-        mu_true = np.asarray(mu_true).reshape((len(knntest_input[0]) , 1))
-        x = np.asarray(x).reshape((len(knntest_input[0]) , 1))
 
-        # print(mu_true.shape, error.shape)
-        # print(x.shape)
+        # inverse_normalize
+        x = x @ scalingNor
+        mu_true = mu_true @ scalingNor
 
-        error = np.concatenate( (error, x-mu_true) , axis=1)
-        # relativeL2Error()
-        # return error
+        # old method
+        # mu_true = np.asarray(mu_true).reshape((len(knntest_input[0]) , 1))
+        # x = np.asarray(x).reshape((len(knntest_input[0]) , 1))
 
+        t1 = time.time() - t0
+        results.iloc[0,0] += t1 / num
+        results.iloc[1,0] += t1 / num
+        results.iloc[2,0] += t1 / num
+        results.iloc[0 , -1] += fun
+        results.iloc[1 , -1] += fun
+        results.iloc[2 , -1] += fun
+        for i in range(4):
+            results.iloc[0, i + 1] += x[i] / num
+            results.iloc[1, i + 1] += mu_true[i] / num
+            results.iloc[2, i + 1] += (x[i] - mu_true[i]) / mu_true[i]
 
+    # ORIGINAL method
     # results = [onesample(i) for i in range(numtest)]
-    resultsError = np.sum(error, axis=1) / num
-    print(f'The error of strategy {strategy} is {resultsError}')
-    return resultsError
-    # print(resultsError)
+    # resultsError = np.sum(error, axis=1) / num
+    # print(f'The error of strategy {strategy} is {resultsError}')
+    # return resultsError
+
+    # results.to_csv('../Output/DeTest.txt')
+    return results
 
 
 
-def PSOscikitOneSample(x0 = np.array([5,0,60,295]), r = 50):
+
+def PSOglobal(x0 = np.array([5, 0, 60, 295]), r = 50):
     # adjust the parameter
     max_iter = 50
-    numtest = 5
+    numtest = 924
 
     # get data
     knn = joblib.load('../Input/knn4.pkl')
@@ -214,13 +238,13 @@ def PSOscikitOneSample(x0 = np.array([5,0,60,295]), r = 50):
     limits = [[0, 615], [0, 2500], [20, 100], [290, 300]]
     dim = len(limits) # the dim of the parameter
     parameters, field, observations, sensors = load_power18480()
-    basis, _ = load_power18480_pod(r)
+    basis, _ = load_power18480_pod()
     basis = basis.to_numpy()
     obs_test = knntest_output @ basis @ sensors.T
 
     # create the
     columns = ['time', 'st', 'pw', 'bu', 'tn']
-    index = ['the predicted parameter', 'the true data', 'the error']
+    index = ['PrePara', 'the true data', 'the error']
     results = pd.DataFrame(np.zeros((len(index), len(columns))),
                            columns=columns,
                            index=index)
@@ -270,7 +294,7 @@ def SAscikit(x0 = np.array([5,0,60,295]), r = 50):
     limits = [[0, 615], [0, 2500], [20, 100], [290, 300]]
     dim = len(limits) # the dim of the parameter
     parameters, field, observations, sensors = load_power18480()
-    basis, _ = load_power18480_pod(r)
+    basis, _ = load_power18480_pod()
     basis = basis.to_numpy()
     obs_test = knntest_output @ basis @ sensors.T
 
@@ -289,6 +313,7 @@ def SAscikit(x0 = np.array([5,0,60,295]), r = 50):
         t0 = time.time()
         obs = observations[_*5, :]
         mu_true = knntest_input[_*5, :]
+        x0 = mu_true
         fobj = lambda p: reconstruct_observation_error_from_input(p, knn, basis, obs, sensors)
 
 
@@ -311,9 +336,6 @@ def SAscikit(x0 = np.array([5,0,60,295]), r = 50):
 
 
     results.to_csv('../Output/SAresults.txt')
-
-
-
 
 
 def sklearnPipe(nSample,k=4):
@@ -362,161 +384,218 @@ def FindBestDeStrategy(nSample=15 ):
             'rand2bin',
             'rand1bin']
     findbeststrategy = dict(zip(strategies, [DeSklearnGlobal(i) for i in strategies]))
-    print(findbeststrategy)
-    joblib.dump(findbeststrategy, '../Output/FindBestSklearn10.pkl')
+    # print(findbeststrategy)
+    with open(r'../Output/DeFindBestStrategyTest.txt') as f:
+        f.write(findbeststrategy)
+        f.write('\n' + '\n')
+    # joblib.dump(findbeststrategy, '../Output/DeFindBestStrategyTest.pkl')
+    # findbeststrategy = pd.DataFrame(findbeststrategy)
+    # findbeststrategy.to_csv('../Input/DeFindBestStrategy.txt')
+    # joblib.dump(findbeststrategy, '../Output/FindBestSklearn10.pkl')
+
+def CSDE(r = 50):
+
+    # get data
+    knn = joblib.load('../Input/knn4.pkl')
+    knntest_input = joblib.load('../Input/knntest_input.pkl') # mu
+    knntest_output = joblib.load('../Input/knntest_output.pkl') # alpha
+    limits = [[0, 615], [0, 2500], [20, 100], [290, 300]]
+    dim = len(limits) # the dim of the parameter
+    parameters, field, observations, sensors = load_power18480()
+    basis, _ = load_power18480_pod()
+    basis = basis.to_numpy()
+    # obs_test = knntest_output @ basis @ sensors.T
+
+    # adjust the parameter
+    max_iter = 50
+    numtest = len(knntest_input[:,0])
+    print(numtest)
+
+    # create the
+    columns = ['time', 'st', 'pw', 'bu', 'tn', 'fitnessfunc']
+    index = ['the predicted parameter', 'the true data', 'the error']
+    results = pd.DataFrame(np.zeros((len(index), len(columns))),
+                           columns=columns,
+                           index=index)
 
 
-# 目前废弃
-def DE_CS_algorithm(fitness_func, bounds, pop_size=50, max_iter=1000, F=0.8, cr=0.7, step_size=0.1, pa=0.25, nest_num=50, alpha=1.5):
-    """
-    Implements a hybrid Differential Evolution (DE) and Cuckoo Search (CS) algorithm for optimization problems.
 
-    Parameters:
-    fitness_func (function): the fitness function to be optimized.
-    bounds (tuple): the lower and upper bounds of the decision variables as a tuple of arrays.
-    pop_size (int): the population size for the DE algorithm (default: 50).
-    max_iter (int): the maximum number of iterations for the algorithm (default: 1000).
-    F (float): the scaling factor for the DE algorithm (default: 0.8).
-    cr (float): the crossover rate for the DE algorithm (default: 0.7).
-    step_size (float): the step size for the CS algorithm (default: 0.1).
-    pa (float): the probability of a cuckoo egg being discovered (default: 0.25).
-    nest_num (int): the number of nests for the CS algorithm (default: 50).
-    alpha (float): the power-law index for the Levy flight in the CS algorithm (default: 1.5).
+    for _ in range(1):
+        t0 = time.time()
+        obs = observations[_*5, :]
+        mu_true = knntest_input[_*5, :]
+        fobj = lambda p: reconstruct_observation_error_from_input(p, knn, basis, obs, sensors)
 
-    Returns:
-    A tuple containing the best solution found and its fitness value.
-    """
+        best_nest, best_fitness = cuckoo_search(50, dim, fobj, [limits[_][0] for _ in range(dim)],
+                                                [limits[_][1] for _ in range(dim)], step_size=0.4)
+        t1 = time.time() - t0
+        # claculate the mean absolute sum , and numtest is the number of testdata.
+        results.iloc[0,0] += t1 / numtest
+        results.iloc[1,0] += t1 / numtest
+        results.iloc[2,0] += t1 / numtest
+        results.iloc[0 , -1] += best_fitness / numtest
+        results.iloc[1 , -1] += best_fitness / numtest
+        results.iloc[2 , -1] += best_fitness / numtest
+        for i in range(4):
+            results.iloc[0, i + 1] += best_nest[i] / numtest
+            results.iloc[1, i + 1] += mu_true[i] / numtest
+            results.iloc[2, i + 1] += (best_nest[i] - mu_true[i]) / mu_true[i]
 
-    # Define the fitness function to be optimized
-    def fitness(x):
-        return np.sum(x ** 2)
 
-    # Define the DE operator to combine two solutions and create a new one
-    def de_operator(x1, x2, x3, F):
-        return x1 + F * (x2 - x3)
+    results.to_csv('../Output/CSDEresults.txt')
 
-    # Define the CS operator to generate a new solution using Lévy flight
-    def cs_operator(x, alpha, lambda_, lower_bound, upper_bound):
-        levy = lambda_ * np.random.standard_cauchy(len(x))
-        new_x = x + alpha * levy / (abs(levy) ** (1 / 2))
-        return np.clip(new_x, lower_bound, upper_bound)
 
-    # Set the bounds for the decision variables
-    lower_bound, upper_bound = bounds
-
-    # Initialize the population for the DE algorithm with random solutions
-    pop = np.random.uniform(lower_bound, upper_bound, (pop_size, len(lower_bound)))
-
-    # Evaluate the fitness of each solution in the population
-    fitness_values = np.array([fitness_func(x) for x in pop])
-
-    # Initialize the nests for the CS algorithm with random solutions
-    nests = np.random.uniform(lower_bound, upper_bound, (nest_num, len(lower_bound)))
-
-    # Evaluate the fitness of each nest in the population
-    nest_fitness = np.array([fitness_func(x) for x in nests])
-
-    # Main loop of the algorithm
-    for i in range(max_iter):
-        # Generate a new population for the DE algorithm by applying the DE operator
-        new_pop = np.zeros_like(pop)
-        for j in range(pop_size):
-            # Select three solutions from the population at random
-            idxs = np.random.choice(pop_size, 3, replace=False)
-            x1, x2, x3 = pop[idxs]
-            # Generate a new solution using the DE operator
-            v = de_operator(x1, x2, x3, F, cr, lower_bound, upper_bound)
-            # Evaluate the fitness of the new solution
-            fv = fitness_func(v)
-            # Choose the best solution between the new solution and the original solution
-            if fv < fitness_values[j]:
-                new_pop[j] = v
-                fitness_values[j] = fv
-            else:
-                new_pop[j] = pop[j]
-        pop = new_pop
-
-        # Generate a new population for the CS algorithm by applying the CS operator
-        new_nests = np.zeros_like(nests)
-        for j, nest in enumerate(nests):
-            # Generate a new solution using the Levy flight in the CS algorithm
-            v = cs_operator(nest, step_size, lower_bound, upper_bound, alpha)
-            # Evaluate the fitness of the new solution
-            fv = fitness_func(v)
-            # Choose the best solution between the new solution and the original solution
-            if fv < nest_fitness[j]:
-                new_nests[j] = x
-                nest_fitness[j] = fv
-            else:
-                new_nests[j] = nest[j]
-
-                # Sort the nests by fitness value
-            sorted_idxs = np.argsort(nest_fitness)
-            nest = new_nests[sorted_idxs]
-            nest_fitness = nest_fitness[sorted_idxs]
-
-            # Abandon a fraction of the nests and replace them with new ones
-            # num_abandoned = int(abandon_rate * pop_size)
-            num_abandoned = int(pa * pop_size)
-            abandoned_nests = np.random.choice(pop_size, size=num_abandoned, replace=False)
-            for j in abandoned_nests:
-                nest[j] = np.random.randn(dim)
-                nest_fitness[j] = fitness(nest[j])
-
-            # Return the best solution found
-        best_idx = np.argmin(nest_fitness)
-        best_solution = nest[best_idx]
-        return best_solution, nest_fitness[best_idx]
-
-    # Set the algorithm parameters
-    pop_size = 50
-    dim = 10
-    max_iter = 100
-    F = 0.8
-    cr = 0.7
-    pa = 0.25
-    abandon_rate = 0.25
-
-    # Initialize the population with random solutions
-    pop = np.random.randn(pop_size, dim)
-
-    # Evaluate the fitness of each solution in the population
-    fitness_values = np.array([fitness(x) for x in pop])
-
-    # Main loop of the algorithm
-    for i in range(max_iter):
-        # Generate a new population by applying the DE and CS operators
-        new_pop = np.zeros((pop_size, dim))
-        for j in range(pop_size):
-            # Select three solutions(index) from the population at random
-            idxs = random.sample(range(pop_size), 3)
-            x1, x2, x3 = pop[idxs]
-            # Generate a new solution using the DE operator
-            v = de_operator(x1, x2, x3, F, cr)
-            # Apply the CS operator to the new solution
-            u = cs_operator(v, pa)
-            # Replace one solution in the population if the new solution is better
-            if fitness(u) < fitness_values[idxs[0]]:
-                new_pop[j] = u
-                fitness_values[idxs[0]] = fitness(u)
-            else:
-                new_pop[j] = pop[idxs[0]]
-        pop = new_pop
-
-        # Run the CS algorithm on the current population
-        best_solution, best_fitness = cuckoo_search(pop, fitness_values, max_iter=10, pa=pa, abandon_rate=abandon_rate)
-
-        # Replace the worst solution in the population if the new solution is better
-        worst_idx = np.argmax(fitness_values)
-        if best_fitness < fitness_values[worst_idx]:
-            pop[worst_idx] = best_solution
-            fitness_values[worst_idx] = best_fitness
-
-    # Return the best solution found
-    best_idx = np.argmin(fitness_values)
-    best_solution = pop[best_idx]
-    print("Best solution found: ", best_solution)
-    print("Fitness value: ", fitness_values[best_idx])
+# # 目前废弃
+# def DE_CS_algorithm(fitness_func, bounds, pop_size=50, max_iter=1000, F=0.8, cr=0.7, step_size=0.1, pa=0.25, nest_num=50, alpha=1.5):
+#     """
+#     Implements a hybrid Differential Evolution (DE) and Cuckoo Search (CS) algorithm for optimization problems.
+#
+#     Parameters:
+#     fitness_func (function): the fitness function to be optimized.
+#     bounds (tuple): the lower and upper bounds of the decision variables as a tuple of arrays.
+#     pop_size (int): the population size for the DE algorithm (default: 50).
+#     max_iter (int): the maximum number of iterations for the algorithm (default: 1000).
+#     F (float): the scaling factor for the DE algorithm (default: 0.8).
+#     cr (float): the crossover rate for the DE algorithm (default: 0.7).
+#     step_size (float): the step size for the CS algorithm (default: 0.1).
+#     pa (float): the probability of a cuckoo egg being discovered (default: 0.25).
+#     nest_num (int): the number of nests for the CS algorithm (default: 50).
+#     alpha (float): the power-law index for the Levy flight in the CS algorithm (default: 1.5).
+#
+#     Returns:
+#     A tuple containing the best solution found and its fitness value.
+#     """
+#
+#     # Define the fitness function to be optimized
+#     def fitness(x):
+#         return np.sum(x ** 2)
+#
+#     # Define the DE operator to combine two solutions and create a new one
+#     def de_operator(x1, x2, x3, F):
+#         return x1 + F * (x2 - x3)
+#
+#     # Define the CS operator to generate a new solution using Lévy flight
+#     def cs_operator(x, alpha, lambda_, lower_bound, upper_bound):
+#         levy = lambda_ * np.random.standard_cauchy(len(x))
+#         new_x = x + alpha * levy / (abs(levy) ** (1 / 2))
+#         return np.clip(new_x, lower_bound, upper_bound)
+#
+#     # Set the bounds for the decision variables
+#     lower_bound, upper_bound = bounds
+#
+#     # Initialize the population for the DE algorithm with random solutions
+#     pop = np.random.uniform(lower_bound, upper_bound, (pop_size, len(lower_bound)))
+#
+#     # Evaluate the fitness of each solution in the population
+#     fitness_values = np.array([fitness_func(x) for x in pop])
+#
+#     # Initialize the nests for the CS algorithm with random solutions
+#     nests = np.random.uniform(lower_bound, upper_bound, (nest_num, len(lower_bound)))
+#
+#     # Evaluate the fitness of each nest in the population
+#     nest_fitness = np.array([fitness_func(x) for x in nests])
+#
+#     # Main loop of the algorithm
+#     for i in range(max_iter):
+#         # Generate a new population for the DE algorithm by applying the DE operator
+#         new_pop = np.zeros_like(pop)
+#         for j in range(pop_size):
+#             # Select three solutions from the population at random
+#             idxs = np.random.choice(pop_size, 3, replace=False)
+#             x1, x2, x3 = pop[idxs]
+#             # Generate a new solution using the DE operator
+#             v = de_operator(x1, x2, x3, F, cr, lower_bound, upper_bound)
+#             # Evaluate the fitness of the new solution
+#             fv = fitness_func(v)
+#             # Choose the best solution between the new solution and the original solution
+#             if fv < fitness_values[j]:
+#                 new_pop[j] = v
+#                 fitness_values[j] = fv
+#             else:
+#                 new_pop[j] = pop[j]
+#         pop = new_pop
+#
+#         # Generate a new population for the CS algorithm by applying the CS operator
+#         new_nests = np.zeros_like(nests)
+#         for j, nest in enumerate(nests):
+#             # Generate a new solution using the Levy flight in the CS algorithm
+#             v = cs_operator(nest, step_size, lower_bound, upper_bound, alpha)
+#             # Evaluate the fitness of the new solution
+#             fv = fitness_func(v)
+#             # Choose the best solution between the new solution and the original solution
+#             if fv < nest_fitness[j]:
+#                 new_nests[j] = x
+#                 nest_fitness[j] = fv
+#             else:
+#                 new_nests[j] = nest[j]
+#
+#                 # Sort the nests by fitness value
+#             sorted_idxs = np.argsort(nest_fitness)
+#             nest = new_nests[sorted_idxs]
+#             nest_fitness = nest_fitness[sorted_idxs]
+#
+#             # Abandon a fraction of the nests and replace them with new ones
+#             # num_abandoned = int(abandon_rate * pop_size)
+#             num_abandoned = int(pa * pop_size)
+#             abandoned_nests = np.random.choice(pop_size, size=num_abandoned, replace=False)
+#             for j in abandoned_nests:
+#                 nest[j] = np.random.randn(dim)
+#                 nest_fitness[j] = fitness(nest[j])
+#
+#             # Return the best solution found
+#         best_idx = np.argmin(nest_fitness)
+#         best_solution = nest[best_idx]
+#         return best_solution, nest_fitness[best_idx]
+#
+#     # Set the algorithm parameters
+#     pop_size = 50
+#     dim = 10
+#     max_iter = 100
+#     F = 0.8
+#     cr = 0.7
+#     pa = 0.25
+#     abandon_rate = 0.25
+#
+#     # Initialize the population with random solutions
+#     pop = np.random.randn(pop_size, dim)
+#
+#     # Evaluate the fitness of each solution in the population
+#     fitness_values = np.array([fitness(x) for x in pop])
+#
+#     # Main loop of the algorithm
+#     for i in range(max_iter):
+#         # Generate a new population by applying the DE and CS operators
+#         new_pop = np.zeros((pop_size, dim))
+#         for j in range(pop_size):
+#             # Select three solutions(index) from the population at random
+#             idxs = random.sample(range(pop_size), 3)
+#             x1, x2, x3 = pop[idxs]
+#             # Generate a new solution using the DE operator
+#             v = de_operator(x1, x2, x3, F, cr)
+#             # Apply the CS operator to the new solution
+#             u = cs_operator(v, pa)
+#             # Replace one solution in the population if the new solution is better
+#             if fitness(u) < fitness_values[idxs[0]]:
+#                 new_pop[j] = u
+#                 fitness_values[idxs[0]] = fitness(u)
+#             else:
+#                 new_pop[j] = pop[idxs[0]]
+#         pop = new_pop
+#
+#         # Run the CS algorithm on the current population
+#         best_solution, best_fitness = cuckoo_search(pop, fitness_values, max_iter=10, pa=pa, abandon_rate=abandon_rate)
+#
+#         # Replace the worst solution in the population if the new solution is better
+#         worst_idx = np.argmax(fitness_values)
+#         if best_fitness < fitness_values[worst_idx]:
+#             pop[worst_idx] = best_solution
+#             fitness_values[worst_idx] = best_fitness
+#
+#     # Return the best solution found
+#     best_idx = np.argmin(fitness_values)
+#     best_solution = pop[best_idx]
+#     print("Best solution found: ", best_solution)
+#     print("Fitness value: ", fitness_values[best_idx])
 
 if __name__ == '__main__':
     # # test
@@ -526,11 +605,20 @@ if __name__ == '__main__':
     limits = np.array([[0, 615], [0, 2500], [20, 100], [290, 300]])
 
     # # workspace
-    # print(joblib.load('../Input/knntest_input.pkl'))
+    # we can display the full version of the data
+    # # 显示所有列
+    # pd.set_option('display.max_columns', None)
+    # # 显示所有行
+    # pd.set_option('display.max_rows', None)
+    # print(joblib.load('../Output/DeFindBestStrategyTest.pkl'))
+
 
     # DeSklearnGlobal('rand1exp')
     # DeSklearnOneSample(15,'rand1exp')
     # sklearnPipe(15)
-    # FindBestStrategy()
+    # FindBestDeStrategy()
     # PSOscikitOneSample()
-    SAscikit()
+    # SAscikit()
+    # CSDE()
+
+

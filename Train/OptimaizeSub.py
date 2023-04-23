@@ -3,6 +3,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from ProSub import *
+import math
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import train_test_split
 from scipy.optimize import differential_evolution
@@ -26,17 +27,18 @@ def load_power18480(name='18480'):
     parameters.rename(columns={1: 'st', 2: 'bu', 3: 'pw', 4: 'tin'}, inplace=True)
     sensors = pd.read_csv('../Input/sensors.txt', header=None, delimiter=' ', dtype=float)
     observations = np.dot(field, sensors.T)
+    observations = pd.DataFrame(observations)
+    observations.to_csv('../Input/Y18480.txt',sep=' ', header=False, index=False)
     return parameters, field, observations, sensors
 
 
-def load_power18480_pod(dim=40):
+def load_power18480_pod():
     '''
 
-    :param dim: The number of modes.
     :return:
     '''
-    qbasis = pd.read_csv('../Input/powerIAEA18480basis.txt', delimiter=' ', header=None, dtype=float)  # shape:(n, M), n=150, M=52*28=1456
-    basis = qbasis.iloc[:dim, :]  # DIM, M
+    basis = pd.read_csv('../Input/powerIAEA18480basis.txt', delimiter=' ', header=None, dtype=float)  # shape:(n, M), n=150, M=52*28=1456
+    # basis = qbasis.iloc[:dim, :]  # DIM, M
     coefficient = pd.read_csv('../Input/powerIAEA18480coef.txt', header=None, delimiter=' ', dtype=float)
     return basis, coefficient
 
@@ -83,6 +85,7 @@ def reconstruct_field_by_inputs(inputs, model, basis):
         inputs = inputs.reshape(1, -1)
     alphas = model.predict(inputs)  # shape: 18480, r
     return np.dot(alphas, basis)  # shape: n, 1456
+
 
 def get_bounds(ys,  offsets, limits):
     '''
@@ -198,6 +201,122 @@ def de_target_to_best_bin_operator(xi, x1, x2, xbest, F):
     :return:
     '''
     return xi + F * (x1 + xbest - xi - x2)
+
+class Config:
+    __PopulationSize = 50 # Population Size
+    __MaxDomain = 500 # variable upper limit
+    __MinDomain = -500 # variable lower limit
+    __Lambda = 1.5 # parameter for Levy flight
+    __Pa = 0.25
+    __Step_Size = 0.01
+    __Dimension = 10 # The number of dimension
+    __Trial = 31
+    __Iteration = 3000
+
+    @classmethod
+    def get_population_size(cls):
+        return cls.__PopulationSize
+
+    @classmethod
+    def get_Pa(cls):
+        return cls.__Pa
+
+    @classmethod
+    def get_iteration(cls):
+        return cls.__Iteration
+
+    @classmethod
+    def get_trial(cls):
+        return cls.__Trial
+
+    @classmethod
+    def get_dimension(cls):
+        return cls.__Dimension
+
+    @classmethod
+    def get_max_domain(cls):
+        return cls.__MaxDomain
+
+    @classmethod
+    def set_max_domain(cls, _max_domain):
+        cls.__MaxDomain = _max_domain
+
+    @classmethod
+    def get_min_domain(cls):
+        return cls.__MinDomain
+
+    @classmethod
+    def set_min_domain(cls, _min_domain):
+        cls.__MinDomain = _min_domain
+
+    @classmethod
+    def get_lambda(cls):
+        return cls.__Lambda
+
+    @classmethod
+    def set_lambda(cls, _lambda):
+        cls.__Lambda = _lambda
+
+    @classmethod
+    def get_stepsize(cls):
+        return cls.__Step_Size
+
+def plot_cv_indices(cv, X, y, group, ax, n_splits, lw=10):
+    """Create a sample plot for indices of a cross-validation object."""
+
+    # Generate the training/testing visualizations for each CV split
+    for ii, (tr, tt) in enumerate(cv.split(X=X, y=y, groups=group)):
+        # Fill in indices with the training/test groups
+        indices = np.array([np.nan] * len(X))
+        indices[tt] = 1
+        indices[tr] = 0
+
+        # Visualize the results
+        ax.scatter(
+            range(len(indices)),
+            [ii + 0.5] * len(indices),
+            c=indices,
+            marker="_",
+            lw=lw,
+            cmap=cmap_cv,
+            vmin=-0.2,
+            vmax=1.2,
+        )
+
+    # Plot the data classes and groups at the end
+    ax.scatter(
+        range(len(X)), [ii + 1.5] * len(X), c=y, marker="_", lw=lw, cmap=cmap_data
+    )
+
+    ax.scatter(
+        range(len(X)), [ii + 2.5] * len(X), c=group, marker="_", lw=lw, cmap=cmap_data
+    )
+
+    # Formatting
+    yticklabels = list(range(n_splits)) + ["class", "group"]
+    ax.set(
+        yticks=np.arange(n_splits + 2) + 0.5,
+        yticklabels=yticklabels,
+        xlabel="Sample index",
+        ylabel="CV iteration",
+        ylim=[n_splits + 2.2, -0.2],
+        xlim=[0, 100],
+    )
+    ax.set_title("{}".format(type(cv).__name__), fontsize=15)
+    return ax
+
+
+def levy_flight(Lambda):
+    cf = Config()
+    #generate step from levy distribution
+    sigma1 = np.power((math.gamma(1 + Lambda) * np.sin((np.pi * Lambda) / 2)) \
+                      / math.gamma((1 + Lambda) / 2) * np.power(2, (Lambda - 1) / 2), 1 / Lambda)
+    sigma2 = 1
+    u = np.random.normal(0, sigma1, size=cf.get_dimension())
+    v = np.random.normal(0, sigma2, size=cf.get_dimension())
+    step = u / np.power(np.fabs(v), 1 / Lambda)
+
+    return step    # return np.array (ex. [ 1.37861233 -1.49481199  1.38124823])
 
 
 # Define the CS operator to generate a new solution using Lévy flight
@@ -322,8 +441,7 @@ class DeBest:
         self.errors = self.errors[:self.it+1]
         return self
 
-
-if __name__ == '__main__':
+def PlotResultMyPSO():
     pso = ApolloidPSO()
     pso.implement()
 
@@ -350,4 +468,16 @@ if __name__ == '__main__':
     plt.scatter(best_x, best_y, c='r', label='best point')
     plt.legend()
     plt.show()
+
+
+if __name__ == '__main__':
+    pass
+
+    # workspace
+    # load_power18480()
+    # PlotResultMyPSO()
+
+
+
+
 

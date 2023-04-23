@@ -4,13 +4,14 @@
 
 __author__ = 'Lizhan Hong'
 
+import joblib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.sparse as spr
 from sklearn.utils.extmath import randomized_svd
-
 from Read import read
+from ProSub import *
 
 
 def extractInpower(InpowerRaw, start:int, end:int):
@@ -198,6 +199,17 @@ def CompileData():
     Power.to_csv('..\Input\Power.txt', sep=' ', index=False, header=False)
 
 
+def RestoreNormalizedData():
+    input_data_mu = np.loadtxt('../Input/inpower18480_4.txt')
+    input_data_mu_nor, scaling_index = normalize(input_data_mu)
+    scaling_index = np.diag(scaling_index)
+    input_data_mu_nor = pd.DataFrame(input_data_mu_nor)
+    input_data_mu_nor.to_csv('../Input/inpowerNor18480_4.txt', sep = ' ', index = False, header=False)
+    scaling_index = pd.DataFrame(scaling_index)
+    scaling_index.to_csv('../Input/scalingNor.txt', sep = ' ', index = False, header=False)
+
+
+
 def GerSelectedMatrix(selectedGrid: list, selectedSection: list, numGridQuarter: int, numSection: int):
     '''
     Generate the data of sensors selector.
@@ -255,7 +267,7 @@ if __name__ == '__main__':
     ## # test space
 
     # # test the shape
-    # print(read('../Input/.txt', 'txt').shape)
+    print(joblib.load('../Input/knntest_output.pkl').shape)
 
 
     # inpower18480_4 = extractInpower(read('../Input/inpower18480.out','txt'),1,5)
@@ -271,7 +283,7 @@ if __name__ == '__main__':
     # field2 = pd.read_csv('../Input/powerIAEA8480.txt', delimiter=' ', header=None, dtype=float)
     # field = pd.concat([field1, field2], ignore_index=True)
     # field.to_csv('..\Input\powerIAEA18480.txt', sep=' ', index=False, header=False)
-    #
+
     # # 5517
     # POD(r=50, pathin='..\Input\power5517.out', pathoutAlpha=r'..\Input\alpha5517.txt',
     #         pathoutQ='..\Input\q5517.txt')_
@@ -281,5 +293,6 @@ if __name__ == '__main__':
 
 
     # GerSelectedMatrix(selectedGrid, selectedSection, numGridQuarter, numSection)
+    # RestoreNormalizedData()
 
 
