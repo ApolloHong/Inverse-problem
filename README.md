@@ -104,8 +104,10 @@ author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan',
 + 'Y10.txt': (10,84)
 + 'Inpower10.txt': (10,4)
 + 'sensors.txt': (84, 1456)
-+ 'knntest_input.pkl': (4620, 4)
-+ 'knntest_output.pkl': (4620, 50)
++ 'knntest_input.pkl': (924, 4)
++ 'knntest_output.pkl': (924, 50)
++ 'inpowerNor18480_4.txt': (18480, 4) # the normalized data
++ 'scalingNor.txt': (4, 4) # the scaling factors for the input data.
 
 ### data in inverse_problem_predict
 + parameters.shape : (18480, 4)
