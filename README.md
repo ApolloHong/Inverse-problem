@@ -1,5 +1,5 @@
 
-author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan',
+author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Chenjie Song'
 
 # Apolloid 1.0
 ## This is the instruction of for POD process in reactorDt第一代设计
