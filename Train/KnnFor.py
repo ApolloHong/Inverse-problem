@@ -10,6 +10,9 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import math
+import sklearn
+from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import StratifiedKFold, KFold
@@ -20,6 +23,26 @@ from OptimaizeSub import *
 
 plt.rc('font', family='Times New Roman', size=15)
 plt.style.use('seaborn')  # Set the theme of seaborn
+
+def get_k(train_input,train_output,test_input,test_output):
+    k_range=range(1,train_input.shape[1]/2)
+    k_best=1
+    error_best=1
+    for k in k_range:
+        KN_model = KNeighborsRegressor(n_neighbors=k,weights='distance')
+        KN_model.fit(train_input, train_output)
+        error=0
+        for i in range(test_input.shape[0]):
+            test_line=test_input[i,:]
+            test_line.shape=(1,test_line.size)
+            predict=KN_model.predict(test_line)
+            label=test_output[i,:]
+            error=error+np.linalg.norm(label-predict)/np.linalg.norm(label)
+        error=error/test_input.shape[0]
+        if(error<error_best):
+            error_best=error
+            k_best=k
+    return k_best
 
 
 def KnnForward():
@@ -196,7 +219,7 @@ def KnnWithoutK(nSample):
     return predict_alpha, label
 
 
-def trainKnn(k = 5):
+def trainKnn(k = 5, KFold = 4, KFoldOurs = 0):
     '''
 
     :param k: the k nearist vectors we used. (In our case 5 performs the best)
@@ -211,26 +234,37 @@ def trainKnn(k = 5):
     input_data_mu_nor = np.loadtxt('../Input/inpowerNor18480_4.txt')
     scaling_index = np.loadtxt('../Input/scalingNor.txt')
     input_data_alpha = np.loadtxt(r'../Input/powerIAEA18480coef.txt')
-
-
-
-    # train_input, test_input, train_output, test_output = train_test_split(input_data_mu_nor, input_data_alpha,
-    #                                                                       test_size=0.25, random_state=42)
-
+    split_index = pd.read_csv('../Input/split_index_ibest0.txt')
+    # execute the list in str
+    train_index = eval(split_index['index'][0])
+    test_index = eval(split_index['index'][1])
 
     # # add noise to observation
     # observations = observations + np.random.normal(0, sigma / 100.0, observations.shape) * observations
     # split train, validate, test dataset
 
     # split train dataset, test dataset
-    mu_train_full, mu_test, alpha_train_full, alpha_test = train_test_split(input_data_mu_nor, input_data_alpha, test_size=0.05, \
-                                                                      random_state=42, stratify=input_data_alpha)
-    # split validate dataset and the train dataset
-    in_train, in_val, alpha_train, alpha_val = train_test_split(mu_train_full, alpha_train_full,  test_size=0.2, random_state=42)
+    print(train_index)
+    mu_train, mu_test, alpha_train, alpha_test = input_data_mu_nor[train_index] ,\
+                                                 input_data_mu_nor[test_index],\
+                                                 input_data_alpha[train_index] ,\
+                                                 input_data_alpha[test_index]
+    mu_train, mu_test, alpha_train, alpha_test = np.array(mu_train).reshape((len(train_index),4)),\
+                                             np.array(mu_test).reshape((len(test_index),4)),\
+                                             np.array(alpha_train).reshape((len(train_index),50)),\
+                                             np.array(alpha_test).reshape((len(test_index),50))
 
+    # print(mu_train @ scaling_index, mu_test @ scaling_index, alpha_train , alpha_test)
+
+
+
+    # print(get_k(train_input=mu_train, test_input=mu_test, train_output=alpha_train, test_output=alpha_test))
+    # print(mu_train.shape, alpha_train.shape)
+    #
+    #
     # Train a KNN model on the data
     KNN_model_alpha = KNeighborsRegressor(n_neighbors=k, weights='distance', p=1, metric='minkowski')
-    KNN_model_alpha.fit(in_train, alpha_train)
+    KNN_model_alpha.fit(mu_train, alpha_train)
 
     # # inverse_normalize
     # mu_test = mu_test @ scaling_index
@@ -305,12 +339,10 @@ def FindBestModelKnn(k = 5):
     keys = [str(key) for key in split_index.keys()]
     values = [list(value) for value in split_index.values()]
     split_index = pd.DataFrame(zip(keys, values), columns=['name', 'index'])
+    # name the split_index file with the ibest
     split_index.to_csv('../Input/split_index_ibest'+ f'{ibest}' +'.txt')
     # print(split_index.iloc[0,1])
     # print(ibest)
-
-
-
 
 
 
@@ -322,6 +354,26 @@ def FindBestModelKnn(k = 5):
     # # Save the test_output to a file using pickle
     # with open('../Input/knntest_output.pkl', 'wb') as file:
     #     joblib.dump(alpha_validate, file)
+
+def SaveBestresults():
+    input_data_mu_nor = np.loadtxt('../Input/inpowerNor18480_4.txt')
+    scaling_index = np.loadtxt('../Input/scalingNor.txt')
+    input_data_alpha = np.loadtxt(r'../Input/powerIAEA18480coef.txt')
+    train_index = pd.read_csv('../Input/split_index_ibest0.txt')['index'].iloc[0]
+    test_index = pd.read_csv('../Input/split_index_ibest0.txt')['index'].iloc[1]
+    train_index, test_index = eval(train_index), eval(test_index)
+    # Save the train_input to a file using pickle
+    with open('../Input/knntrain_input.pkl', 'wb') as file1:
+        joblib.dump(input_data_mu_nor[train_index,:], file1)
+    # Save the train_output to a file using pickle
+    with open('../Input/knntrain_output.pkl', 'wb') as file2:
+        joblib.dump(input_data_alpha[train_index,:], file2)
+    # Save the test_input to a file using pickle
+    with open('../Input/knntest_input.pkl', 'wb') as file3:
+        joblib.dump(input_data_mu_nor[test_index,:], file3)
+    # Save the test_output to a file using pickle
+    with open('../Input/knntest_output.pkl', 'wb') as file4:
+        joblib.dump(input_data_alpha[test_index,:], file4)
 
 
 def PlotResult1s():
@@ -382,17 +434,18 @@ def PlotResult1s():
 
 
 if __name__ =='__main__':
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    # errors = [KnnAlpha(), KnnMu(), KnnAlphaSklearn(), KnnMuSklearn()]
-    # df = pd.DataFrame(errors)
-    # df.to_csv('InverseError.txt', sep=' ', index=False, header=False)
-
-    # work space
-    # 显示所有列
-    pd.set_option('display.max_columns', None)
-    # 显示所有行
-    pd.set_option('display.max_rows', None)
+    # # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    # # errors = [KnnAlpha(), KnnMu(), KnnAlphaSklearn(), KnnMuSklearn()]
+    # # df = pd.DataFrame(errors)
+    # # df.to_csv('InverseError.txt', sep=' ', index=False, header=False)
+    #
+    # # work space
+    # # 显示所有列
+    # pd.set_option('display.max_columns', None)
+    # # 显示所有行
+    # pd.set_option('display.max_rows', None)
 
     # trainKnn()
+    SaveBestresults()
     # PlotResult1s()
-    FindBestModelKnn()
+    # FindBestModelKnn()

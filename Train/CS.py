@@ -6,11 +6,12 @@
 
 import numpy as np
 import scipy.special as sc_special
+import swarmlib as sl
 
 version = '1.0.0'
 
 
-def cuckoo_search(n, m, fit_func, lower_boundary, upper_boundary, iter_num=100, pa=0.25, beta=1.5, step_size=0.1):
+def cuckoo_search(n, m, fit_func, lower_boundary, upper_boundary,nests_initial, iter_num=100, pa=0.25, beta=1.5, step_size=0.1):
     """
     Cuckoo search function
     ---------------------------------------------------
@@ -20,6 +21,7 @@ def cuckoo_search(n, m, fit_func, lower_boundary, upper_boundary, iter_num=100, 
         fit_func: User defined fitness evaluative function
         lower_boundary: Lower bounary (example: lower_boundary = (-2, -2, -2))
         upper_boundary: Upper boundary (example: upper_boundary = (2, 2, 2))
+        nests_initial: The initial nest location with size of (n,m)
         iter_num: Number of iterations (default: 100)
         pa: Possibility that hosts find cuckoos' eggs (default: 0.25)
         beta: Power law index (note: 1 < beta < 2) (default: 1.5)
@@ -28,30 +30,31 @@ def cuckoo_search(n, m, fit_func, lower_boundary, upper_boundary, iter_num=100, 
         The best solution and its value
     """
     # get initial nests' locations
-    nests = generate_nests(n, m, lower_boundary, upper_boundary)
+    # nests = generate_nests(n, m, lower_boundary, upper_boundary)
+    nests = nests_initial
     fitness = calc_fitness(fit_func, nests)
 
     # get the best nest and record it
-    best_nest_index = np.argmax(fitness)
+    best_nest_index = np.argmin(fitness)
     best_fitness = fitness[best_nest_index]
     best_nest = nests[best_nest_index].copy()
 
     for _ in range(iter_num):
-        nests = update_nests(fit_func, lower_boundary, upper_boundary, nests, best_nest, fitness, step_size)
+        nests = update_nests(fit_func, lower_boundary, upper_boundary, nests, best_nest, fitness, step_size, beta)
         nests = abandon_nests(nests, lower_boundary, upper_boundary, pa)
         fitness = calc_fitness(fit_func, nests)
 
-        max_nest_index = np.argmax(fitness)
-        max_fitness = fitness[max_nest_index]
-        max_nest = nests[max_nest_index]
+        min_nest_index = np.argmin(fitness)
+        min_fitness = fitness[min_nest_index]
+        min_nest = nests[min_nest_index]
 
-        if (max_fitness > best_fitness):
-            best_nest = max_nest.copy()
-            best_fitness = max_fitness
+        if (min_fitness > best_fitness):
+            best_nest = min_nest.copy()
+            best_fitness = min_fitness
 
     return (best_nest, best_fitness)
 
-
+# initialization
 def generate_nests(n, m, lower_boundary, upper_boundary):
     """
     Generate the nests' locations
@@ -68,6 +71,7 @@ def generate_nests(n, m, lower_boundary, upper_boundary):
     upper_boundary = np.array(upper_boundary)
     nests = np.empty((n, m))
 
+    # we use the uniform distribution
     for each_nest in range(n):
         nests[each_nest] = lower_boundary + np.array([np.random.rand() for _ in range(m)]) * (
                     upper_boundary - lower_boundary)
@@ -75,7 +79,7 @@ def generate_nests(n, m, lower_boundary, upper_boundary):
     return nests
 
 
-def update_nests(fit_func, lower_boundary, upper_boundary, nests, best_nest, fitness, step_coefficient):
+def update_nests(fit_func, lower_boundary, upper_boundary, nests, best_nest, fitness, step_coefficient, beta):
     """
     This function is to get new nests' locations and use new better one to replace the old nest
     ---------------------------------------------------
@@ -87,6 +91,7 @@ def update_nests(fit_func, lower_boundary, upper_boundary, nests, best_nest, fit
         best_nest: Nest with best fitness
         fitness: Every nest's fitness
         step_coefficient:  Step size scaling factor related to the problem's scale (default: 0.1)
+        beta: Power law index (note: 1 < beta < 2) (default: 1.5)
     Output:
         Updated nests' locations
     """
@@ -94,7 +99,7 @@ def update_nests(fit_func, lower_boundary, upper_boundary, nests, best_nest, fit
     upper_boundary = np.array(upper_boundary)
     n, m = nests.shape
     # generate steps using levy flight
-    steps = levy_flight(n, m, 1.5)
+    steps = levy_flight(n, m, beta)
     new_nests = nests.copy()
 
     for each_nest in range(n):
@@ -192,4 +197,4 @@ if __name__ == '__main__':
 
     best_nest, best_fitness = cuckoo_search(25, 2, fit_func, [-3, -3], [3, 3], step_size=0.4)
 
-    print('最大值为:%.5f, 在(%.5f, %.5f)处取到!' % (best_fitness, best_nest[0], best_nest[1]))
+    print('最小值为:%.5f, 在(%.5f, %.5f)处取到!' % (best_fitness, best_nest[0], best_nest[1]))

@@ -196,6 +196,11 @@ class MultiPredictor (BaseEstimator, TransformerMixin):
         return y.T.squeeze()
 
     def decision_function(self, X):
+        '''
+        now no use
+        :param X:
+        :return:
+        '''
         y =np.array([e.decision_function(X) for e in self.predictors]).squeeze()
         return y
 
@@ -216,13 +221,16 @@ def get_bounds(ys,  offsets, limits):
     return [(max(l[0], y - o),  min(l[1], y + o)) for y, l, o in zip(ys, limits[0:3], offsets)]
 
 
-def generate_anchors(bin={"bu":10, "st": 20, "pw": 10, "tin": 10}):
+def generate_anchors(bin=None):
     '''
     This function generates a dictionary of anchor values for each parameter based on the specified `bin` values.
+    attention: only the 'bu' parameter is not linear.
 
     :param bin:  The `bin` dictionary specifies the number of bins to use for each parameter.
     :return:
     '''
+    if bin is None:
+        bin = {"bu": 10, "st": 20, "pw": 10, "tin": 10}
     anchors = {}
     anchors['st'] = np.arange(0 + 615 / (2 * bin['st']), 600, 615 / bin['st'])
     anchors['bu'] = np.array([0, 50, 100, 150, 200, 500, 1000, 1500, 2000, 2500])
@@ -231,7 +239,7 @@ def generate_anchors(bin={"bu":10, "st": 20, "pw": 10, "tin": 10}):
     return anchors
 
 
-def discrete_parameters(parameters, bin={"st": 20, "pw": 10, "tin": 10}):
+def discrete_parameters(parameters, bin=None):
     '''
     This function takes a dictionary of parameters and applies binning to each parameter based on the specified `bin` values.
     It returns a tuple containing the anchor dictionary and the updated parameter dictionary.
@@ -241,6 +249,8 @@ def discrete_parameters(parameters, bin={"st": 20, "pw": 10, "tin": 10}):
     :return:
     '''
 
+    if bin is None:
+        bin = {"st": 20, "pw": 10, "tin": 10}
     anchors = generate_anchors(bin)
     parameters["st_c"], parameters['bu_c'], parameters['pw_c'], parameters["tin_c"] = \
         in2c(parameters['st'], anchors['st']), in2c(parameters['bu'], anchors['bu']), in2c(parameters['pw'], anchors['pw']), in2c(parameters['tin'], anchors['tin'])
@@ -282,7 +292,7 @@ def predict_parameter_from_observation(argv):
     print((nc_start, nc_end, nc_step))
     # load data and model
     parameters, field, observations, sensors = load_power18480()
-    basis, coefficient = load_power18480_pod(40)
+    basis, coefficient = load_power18480_pod()
     anchors = discrete_parameters(parameters)
 
     # sigmas = [0, 1, 2, 3, 4, 5]
@@ -303,7 +313,7 @@ def predict_parameter_from_observation(argv):
         # add noise to observation
         observations = observations + np.random.normal(0, sigma/100.0, observations.shape) * observations
         # split train dataset, test dataset
-        ob_train_full, ob_test, in_train_full, in_test = train_test_split(observations, parameters, test_size=0.05, \
+        ob_train_full, ob_test, in_train_full, in_test = train_test_split(observations, parameters, test_size=0.05,
                                                                           random_state=42)
         # split validate dataset and the train dataset
         ob_train, ob_val, in_train, in_val = train_test_split(ob_train_full, in_train_full, test_size=0.2, random_state=42)
@@ -703,12 +713,14 @@ def de_predict_parameter_from_observation(sigmas, num, prefix, noise, record):
     # the reason why we use the noise is that, we want to simulate the noise get in the idustry.
     for s in sigmas:
         if noise == 'normal':
-            fileld_noise = field + nsg.normal(0, s / 100.0, field.shape) * field
+            field_noise = field + nsg.normal(0, s / 100.0, field.shape) * field
         else:
-            fileld_noise = field + nsg.uniform(0, s / 100.0, field.shape) * field
+            field_noise = field + nsg.uniform(0, s / 100.0, field.shape) * field
 
-        observations = np.dot(fileld_noise, sensors.T)
+        observations = np.dot(field_noise, sensors.T)
 
+        # the model we use is the best pipline in the best-para finding process(like Pipeline(steps=[('pca', PCA(n_components=2)), ('ss', StandardScaler()),
+        #                 ('svc', SVC())]))
         models = select_best_models(s, ['st', 'bu', 'pw'])
         obs2in = MultiPredictor(models)
         anchors = generate_anchors()
@@ -718,18 +730,20 @@ def de_predict_parameter_from_observation(sigmas, num, prefix, noise, record):
             field_i = field.iloc[i].to_numpy()
             # observation error
             fobj = lambda p: reconstruct_observation_error_from_input(p, knn, basis, obs, sensors)
-            # filed L2 error
+            # field L2 error
             f_field_L2_error = lambda p: reconstruct_field_error_from_input(p, knn, basis, field_i)
             f_field_linf_error = lambda p: np.abs(reconstruct_field_by_inputs(p, knn, basis) - field_i).max() / field_i.max()
 
             t1 = time.time()
 
+            # get the predicted anchor index
             c = obs2in.predict(obs)
+            # get the center(anchor) for the first 3 parameters
             y = to_anchors(c, [anchors['st'], anchors['bu'], anchors['pw']])
             x0 = np.concatenate((y, [295])) # the last one is the temperature fixed
-            bounds = get_bounds(y, offsets=[20, 100, 15], limits=limits) + [(290, 300)]
+            bounds = get_bounds(y, offsets=[20, 100, 15], limits=limits) + [(290, 300)] # add directly to the bound
 
-            # generate initial population
+            # generate initial population with the predicted bound
             pop0 = initialize_pop(60, bounds, x=x0)
 
             if record:
@@ -799,6 +813,7 @@ if __name__=="__main__":
     # print(parameters.shape, field.shape, observations.shape, sensors.shape)
 
 
+
     # knn = joblib.load('../Input/knn4.pkl')
     # print(knn.predict(np.array([1,2,3,4]).reshape((-1,1))))
 
@@ -807,17 +822,17 @@ if __name__=="__main__":
 
     # trainKnn()
     # predict_parameter_from_observation([0])
-    # data1 = joblib.load('../Input/inverse_problem.pkl')
-    # data2 = joblib.load('../Input/inverse_problem_models.pkl')
-    # print('data1',data1,'\n', 'data2', data2)
+    data1 = joblib.load('../Input/inverse_problem.pkl')
+    data2 = joblib.load('../Input/inverse_problem_models.pkl')
+    print('data1',data1,'\n', 'data2', data2)
 
 
 
-    result = de_predict_parameter_from_observation(list(range(ss, se)), num, prefix, rand, record)
-    de_parameter_from_observation(list(range(ss, se)), num, prefix, rand, record)
-    de_parameter_from_observation_5cases(list(range(1, 50)), 'clean5caseDE', 1)
-    de_parameter_from_observation(list(range(0, 50)), -1, 'clean5caseDE1', 'clean', record, mus_indx=[0, 9841, 12288, 12589, 13326])
-    de_parameter_from_observation_5cases(list(range(1, 50)), 'clean5caseDEInitial', 1, True)
+    # result = de_predict_parameter_from_observation(list(range(ss, se)), num, prefix, rand, record)
+    # de_parameter_from_observation(list(range(ss, se)), num, prefix, rand, record)
+    # de_parameter_from_observation_5cases(list(range(1, 50)), 'clean5caseDE', 1)
+    # de_parameter_from_observation(list(range(0, 50)), -1, 'clean5caseDE1', 'clean', record, mus_indx=[0, 9841, 12288, 12589, 13326])
+    # de_parameter_from_observation_5cases(list(range(1, 50)), 'clean5caseDEInitial', 1, True)
 
 
 

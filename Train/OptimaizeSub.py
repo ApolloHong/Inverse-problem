@@ -1,22 +1,27 @@
 import random
 import joblib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from ProSub import *
+import seaborn as sns
 import math
+import datetime
+from sklearn.metrics import f1_score, confusion_matrix
+from sklearn.decomposition import PCA
+from sklearn.svm import SVC
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.model_selection import train_test_split
 from scipy.optimize import differential_evolution
-
-
-# Define the fitness function to be optimized
-def fitness_sphere(x):
-    return np.sum(x ** 2)
 
 def load_power18480(name='18480'):
     '''
 
 
+    :rtype: object
     :param name:
     :return:
     '''
@@ -31,7 +36,6 @@ def load_power18480(name='18480'):
     observations.to_csv('../Input/Y18480.txt',sep=' ', header=False, index=False)
     return parameters, field, observations, sensors
 
-
 def load_power18480_pod():
     '''
 
@@ -41,7 +45,6 @@ def load_power18480_pod():
     # basis = qbasis.iloc[:dim, :]  # DIM, M
     coefficient = pd.read_csv('../Input/powerIAEA18480coef.txt', header=None, delimiter=' ', dtype=float)
     return basis, coefficient
-
 
 def field_error_L2(field, field_true):
     '''
@@ -86,8 +89,7 @@ def reconstruct_field_by_inputs(inputs, model, basis):
     alphas = model.predict(inputs)  # shape: 18480, r
     return np.dot(alphas, basis)  # shape: n, 1456
 
-
-def get_bounds(ys,  offsets, limits):
+def get_bounds_from_anchors(ys, offsets, limits):
     '''
     This function takes three arguments: `ys`, `offsets`, and `limits`. `ys` is a 1D array of values,
     `offsets` is a 1D array of offsets (one for each value in `ys`),
@@ -101,7 +103,6 @@ def get_bounds(ys,  offsets, limits):
     '''
     # cs.shape:1*3, ms.shape:1*3, anchors.shape:1*3
     return [(max(l[0], y - o),  min(l[1], y + o)) for y, l, o in zip(ys, limits[0:3], offsets)]
-
 
 def reconstruct_observation_error_from_input(inputs, model, basis, observation_true, sensors):
     '''
@@ -117,290 +118,227 @@ def reconstruct_observation_error_from_input(inputs, model, basis, observation_t
     observation = np.dot(field, sensors.T) # (18480, 84)
     return field_error_L2(observation, observation_true)
 
-def initialize_pop(popsize, bounds, x = None):
+def initialize_pop_uni(popsize, bounds, x0 = None):
     '''
-    The `initilize_pop` function implement a function to initialize the population of the optimizer. It takes in three parameters:
+    The `initilize_pop_uni` function implement a function to initialize the population of the optimizer.
+    With the uniform distribution.
 
     :param popsize: `popsize`: an integer that represents the size of the population.
     :param bounds: `bounds`: a list of pairs of float numbers that represent the bounds for each parameter of the optimization problem.
-    :param x: `x`: a numpy array that represents the initial guess for the optimizer. If provided, it will be included in the population.
+    :param x0: a numpy array that represents the initial guess for the optimizer. If provided, it will be included in the population.
     :return:
     '''
-    dimensions = len(bounds) # in our case, dimensions = 4
+    dim = len(bounds) # in our case, dim = 4
     min_b, max_b = np.asarray(bounds).T # shape:(dimensions,)
-    diff = max_b - min_b
-    pop = min_b + diff * np.random.rand(popsize, dimensions)
+    pop = min_b + (max_b - min_b) * np.random.rand(popsize, dim)
 
-    # if we give an x, we fix the temperature.
-    if x is None:
-        pop[-1] = x
+    # # if we give an x, we fix the temperature.
+    # if x is None:
+    #     pop[-1] = x
     return pop
 
-
-# Define the de_rand_1_bin operator to combine two solutions and create a new one
-def de_rand_1_bin_operator(x1, x2, x3, F):
+def initialize_pop_obl(popsize, bounds, x0 = None):
     '''
+    The `initilize_pop_obl` function implement a function to initialize the population of the optimizer
+    with method of Opposition-Based Learning  (OBL).
 
-    :param x1: One target vector (randomly chosen ) in one population
-    :param x2: One target vector (randomly chosen ) in one population
-    :param x3: One target vector (randomly chosen ) in one population
-    :param F: The scale factor F ∈ [0,2] and F ∈ [0.4,1.0] on the sphere fitness function
+    :param popsize: `popsize`: an integer that represents the size of the population.
+    :param bounds: `bounds`: a list of pairs of float numbers that represent the bounds for each parameter of the optimization problem.
+    :param x0: a numpy array that represents the initial guess for the optimizer. If provided, it will be included in the population.
     :return:
     '''
-    return x1 + F * (x2 - x3)
+    dim = len(bounds) # in our case, dim = 4
+    min_b, max_b = np.asarray(bounds).T # shape:(dimensions,)
 
-# Define the de_rand_2_bin operator to combine two solutions and create a new one
-def de_rand_2_bin_operator(x1, x2, x3, x4, x5, F):
+    popsize1 = int(np.where(popsize%2==0, popsize/2, (popsize+1)/2))
+    popsize2 = int(np.where(popsize%2==0, popsize/2, (popsize-1)/2))
+    pop1 = min_b + (x0 - min_b) * np.random.rand(popsize1, dim)
+    pop2 = x0 + (max_b - x0) * np.random.rand(popsize2, dim)
+
+    pop = np.concatenate((pop1,pop2), axis=0)
+
+    # # if we give an x, we fix the temperature.
+    # if x is None:
+    #     pop[-1] = x
+    return pop
+
+def to_anchors(y, anchors):
     '''
-
-    :param x1: One target vector (randomly chosen ) in one population
-    :param x2: One target vector (randomly chosen ) in one population
-    :param x3: One target vector (randomly chosen ) in one population
-    :param x4: One target vector (randomly chosen ) in one population
-    :param x5: One target vector (randomly chosen ) in one population
-    :param F: The scale factor F ∈ [0,2] and F ∈ [0.4,1.0] on the sphere fitness function
+    This function takes a 2D array of parameter values and an anchor dictionary
+    and returns a 2D array of anchor values based on the parameter values.
+    The anchor values for each parameter are determined by the corresponding anchor dictionary.
+    :param y:
+    :param anchors:
     :return:
     '''
-    return x1 + F * (x2 + x4 - x3 - x5)
+    return np.array([a[c] for a, c in zip(anchors, y.T)]).T
 
-# Define the de_best_1_bin operator to combine two solutions and create a new one
-def de_best_1_bin_operator(x1, x2, xbest, F):
+def generate_anchors(bin=None):
     '''
+    This function generates a dictionary of anchor values for each parameter based on the specified `bin` values.
+    attention: only the 'bu' parameter is not linear.
 
-    :param x1: One target vector (randomly chosen ) in one population
-    :param x2: One target vector (randomly chosen ) in one population
-    :param xbest: The best target vector (randomly chosen ) in one population
-    :param F: The scale factor F ∈ [0,2] and F ∈ [0.4,1.0] on the sphere fitness function
+    :param bin:  The `bin` dictionary specifies the number of bins to use for each parameter.
     :return:
     '''
-    return xbest + F * (x1 - x2)
+    if bin is None:
+        bin = {"bu": 10, "st": 20, "pw": 10, "tin": 10}
+    anchors = {}
+    anchors['st'] = np.arange(0 + 615 / (2 * bin['st']), 600, 615 / bin['st'])
+    anchors['bu'] = np.array([0, 50, 100, 150, 200, 500, 1000, 1500, 2000, 2500])
+    anchors['pw'] = np.arange(20 + 40 / bin['pw'], 100, 80 / bin['pw'])
+    anchors['tin'] = np.arange(295 + 2.5 / bin['tin'], 300, 5 / bin['tin'])
+    return anchors
 
-# Define the de_best_2_bin operator to combine two solutions and create a new one
-def de_best_2_bin_operator(x1, x2, x3, x4, xbest, F):
+def add_noise(data, sigma, noise:str=False):
     '''
 
-    :param x1: One target vector (randomly chosen ) in one population
-    :param x2: One target vector (randomly chosen ) in one population
-    :param x3: One target vector (randomly chosen ) in one population
-    :param x4: One target vector (randomly chosen ) in one population
-    :param xbest: The best target vector (randomly chosen ) in one population
-    :param F: The scale factor F ∈ [0,2] and F ∈ [0.4,1.0] on the sphere fitness function
+    :param data:
+    :param sigma:
+    :param noise:
     :return:
     '''
-    return xbest + F * (x1 + x2 - x3 - x4)
+    nsg = np.random.RandomState(42)
 
-# Define the de_target_to_best_bin operator to combine two solutions and create a new one
-def de_target_to_best_bin_operator(xi, x1, x2, xbest, F):
+    if noise == 'normal':
+        data_noise = data + nsg.normal(0, sigma / 100.0, data.shape) * data
+    elif noise == 'uniform':
+        data_noise = data + nsg.uniform(0, sigma / 100.0, data.shape) * data
+    else:
+        data_noise = data
+
+    return data_noise
+
+def in2c(data, anchors):
     '''
+    discretize the data into.
+    Given an array `data` and an array of `anchors`,
+    computes the index of the nearest anchor for each element of `data`.
+    This can be used for quantization or clustering purposes.
 
-    :param xi One target vector (randomly chosen ) in one population
-    :param x1: One target vector (randomly chosen ) in one population
-    :param x2: One target vector (randomly chosen ) in one population
-    :param xbest: The best target vector (randomly chosen ) in one population
-    :param F: The scale factor F ∈ [0,2] and F ∈ [0.4,1.0] on the sphere fitness function
+    :param data:
+    :param anchors:
+    :return: for each data (parameter), return the index of the nearest anchor.
+    '''
+    data = data.values.repeat(anchors.size).reshape(-1, anchors.size)
+    return np.abs(data - anchors).argmin(axis=1)
+
+def discrete_parameters(parameters, param_name:str, bin=None):
+    '''
+    This function takes a dictionary of parameters and applies binning to each parameter based on the specified `bin` values.
+    It returns a tuple containing the anchor dictionary and the updated parameter dictionary.
+
+    :param parameters:
+    :param bin:
     :return:
     '''
-    return xi + F * (x1 + xbest - xi - x2)
 
-class Config:
-    __PopulationSize = 50 # Population Size
-    __MaxDomain = 500 # variable upper limit
-    __MinDomain = -500 # variable lower limit
-    __Lambda = 1.5 # parameter for Levy flight
-    __Pa = 0.25
-    __Step_Size = 0.01
-    __Dimension = 10 # The number of dimension
-    __Trial = 31
-    __Iteration = 3000
+    if bin is None:
+        bin = {"st": 20, "pw": 10, "tin": 10}
+    anchors = generate_anchors(bin)
+    parameters = pd.DataFrame(parameters)
+    parameter_index = in2c(parameters, anchors[param_name])
+    # parameters['st_c'], parameters['bu_c'], parameters['pw_c'], parameters["tin_c"] = \
+    #     in2c(parameters['st'], anchors['st']), in2c(parameters['bu'], anchors['bu']), in2c(parameters['pw'], anchors['pw']), in2c(parameters['tin'], anchors['tin'])
+    return parameter_index
 
-    @classmethod
-    def get_population_size(cls):
-        return cls.__PopulationSize
-
-    @classmethod
-    def get_Pa(cls):
-        return cls.__Pa
-
-    @classmethod
-    def get_iteration(cls):
-        return cls.__Iteration
-
-    @classmethod
-    def get_trial(cls):
-        return cls.__Trial
-
-    @classmethod
-    def get_dimension(cls):
-        return cls.__Dimension
-
-    @classmethod
-    def get_max_domain(cls):
-        return cls.__MaxDomain
-
-    @classmethod
-    def set_max_domain(cls, _max_domain):
-        cls.__MaxDomain = _max_domain
-
-    @classmethod
-    def get_min_domain(cls):
-        return cls.__MinDomain
-
-    @classmethod
-    def set_min_domain(cls, _min_domain):
-        cls.__MinDomain = _min_domain
-
-    @classmethod
-    def get_lambda(cls):
-        return cls.__Lambda
-
-    @classmethod
-    def set_lambda(cls, _lambda):
-        cls.__Lambda = _lambda
-
-    @classmethod
-    def get_stepsize(cls):
-        return cls.__Step_Size
-
-def plot_cv_indices(cv, X, y, group, ax, n_splits, lw=10):
-    """Create a sample plot for indices of a cross-validation object."""
-
-    # Generate the training/testing visualizations for each CV split
-    for ii, (tr, tt) in enumerate(cv.split(X=X, y=y, groups=group)):
-        # Fill in indices with the training/test groups
-        indices = np.array([np.nan] * len(X))
-        indices[tt] = 1
-        indices[tr] = 0
-
-        # Visualize the results
-        ax.scatter(
-            range(len(indices)),
-            [ii + 0.5] * len(indices),
-            c=indices,
-            marker="_",
-            lw=lw,
-            cmap=cmap_cv,
-            vmin=-0.2,
-            vmax=1.2,
-        )
-
-    # Plot the data classes and groups at the end
-    ax.scatter(
-        range(len(X)), [ii + 1.5] * len(X), c=y, marker="_", lw=lw, cmap=cmap_data
-    )
-
-    ax.scatter(
-        range(len(X)), [ii + 2.5] * len(X), c=group, marker="_", lw=lw, cmap=cmap_data
-    )
-
-    # Formatting
-    yticklabels = list(range(n_splits)) + ["class", "group"]
-    ax.set(
-        yticks=np.arange(n_splits + 2) + 0.5,
-        yticklabels=yticklabels,
-        xlabel="Sample index",
-        ylabel="CV iteration",
-        ylim=[n_splits + 2.2, -0.2],
-        xlim=[0, 100],
-    )
-    ax.set_title("{}".format(type(cv).__name__), fontsize=15)
-    return ax
-
-
-def levy_flight(Lambda):
-    cf = Config()
-    #generate step from levy distribution
-    sigma1 = np.power((math.gamma(1 + Lambda) * np.sin((np.pi * Lambda) / 2)) \
-                      / math.gamma((1 + Lambda) / 2) * np.power(2, (Lambda - 1) / 2), 1 / Lambda)
-    sigma2 = 1
-    u = np.random.normal(0, sigma1, size=cf.get_dimension())
-    v = np.random.normal(0, sigma2, size=cf.get_dimension())
-    step = u / np.power(np.fabs(v), 1 / Lambda)
-
-    return step    # return np.array (ex. [ 1.37861233 -1.49481199  1.38124823])
-
-
-# Define the CS operator to generate a new solution using Lévy flight
-def cs_operator(x, alpha, lambda_, lower_bound, upper_bound):
-    levy = lambda_ * np.random.standard_cauchy(len(x))
-    new_x = x + alpha * levy / (abs(levy) ** (1 / 2))
-    return np.clip(new_x, lower_bound, upper_bound)
-
-
-class particle:
-    def __init__(self):
-        self.pos = 0  # 粒子当前位置
-        self.speed = 0
-        self.pbest = 0  # 粒子历史最好位置
-
-
-class ApolloidPSO:
+def reconstruct_field_error_from_input(inputs, model, basis, filed_true):
     '''
-    our pso
+    Reconstructs a field from `inputs` using `model` and `basis`,
+    and calculates the error between the resulting field and the true `filed_true` array.
+    :param inputs:
+    :param model:
+    :param basis:
+    :param filed_true:
+    :return:
     '''
-    def __init__(self):
-        self.w = 0.5  # 惯性因子
-        self.c1 = 1  # 自我认知学习因子
-        self.c2 = 1  # 社会认知学习因子
-        self.gbest = 0  # 种群当前最好位置
-        self.N = 20  # 种群中粒子数量
-        self.POP = []  # 种群
-        self.iter_N = 100  # 迭代次数
+    field = reconstruct_field_by_inputs(inputs, model, basis)
+    return field_error_L2(field, filed_true)
 
-    # 适应度值计算函数
-    def fitness(self, x):
-        return x + 16 * np.sin(5 * x) + 10 * np.cos(4 * x)
+def initial_guess_svc(knntrain_param, knntest_param, param_names, obs_train, obs_test,
+                      confusion_plot:bool=False, n_components_svc:int=2):
+    # create the results
+    columns = ['st', 'pw', 'bu']
+    index = ['f1_score']
+    results = pd.DataFrame(np.zeros((len(index), len(columns))),
+                           columns=columns,
+                           index=index)
+    models = {}
+    # train the classifying model
+    # the model we use is the best pipline in the best-para finding process(like
+    # 'Pipeline(steps=[('pca', PCA(n_components=2)), ('ss', StandardScaler()), ('svc', SVC())])')
+    model = Pipeline([('pca', PCA(n_components=n_components_svc)),
+                      ('ss', StandardScaler()),
+                      ('svc', SVC())])
 
-    # 找到全局最优解
-    def g_best(self, pop):
-        for bird in pop:
-            if bird.fitness > self.fitness(self.gbest):
-                self.gbest = bird.pos
+    models = {}
+    for _ in range(len(param_names[0:3])):
+        mu_train_discrete = discrete_parameters(knntrain_param[:, _], param_names[_])
+        mu_test_discrete = discrete_parameters(knntest_param[:, _], param_names[_])
+        # reshape the mu_train_discrete with single feature
+        mu_train_discrete1feature = mu_train_discrete.reshape(-1, 1)
+        mu_test_discrete1feature = mu_test_discrete.reshape(-1, 1)
+        # we use np.ravel to flatten the matrix
+        model.fit(np.array(obs_train) , np.ravel(mu_train_discrete1feature))
+        prd = model.predict( obs_test )
+        results.iloc[0,_] = f1_score(mu_test_discrete1feature, prd, average='macro')
+        models[param_names[_]] = model
 
-    # 初始化种群
-    def initPopulation(self, pop, N):
-        for i in range(N):
-            bird = particle()#初始化鸟
-            bird.pos = np.random.uniform(-10, 10)#均匀分布
-            bird.fitness = self.fitness(bird.pos)
-            bird.pbest = bird.fitness
-            pop.append(bird)
+        if confusion_plot:
+            # plot the confusion matrix
+            Mat_confusion = confusion_matrix(mu_test_discrete1feature, prd)
+            plt.rc('font', family='Times New Roman', size=8)
+            sns.heatmap(Mat_confusion, annot=True, fmt='.0f')
+            plt.savefig('../Output/Confusion_Matrix_with' + str(n_components_svc) + 'eigval' + str(param_names[_] + '.png'))
+            plt.show()
 
-        # 找到种群中的最优位置
-        self.g_best(pop)
+    joblib.dump(models,'../Input/SVC_models'+ str(n_components_svc) +'.pkl')
+    results.to_csv('../Output/SVC_F1_Score_results'+ str(n_components_svc) +'.txt')
 
-    # 更新速度和位置
-    def update(self, pop):
-        for bird in pop:
-            # 速度更新
-            speed = self.w * bird.speed + self.c1 * np.random.random() * (
-                bird.pbest - bird.pos) + self.c2 * np.random.random() * (
-                self.gbest - bird.pos)
 
-            # 位置更新
-            pos = bird.pos + speed
-
-            if -10 < pos < 10: # 必须在搜索空间内
-                bird.pos = pos
-                bird.speed = speed
-                # 更新适应度
-                bird.fitness = self.fitness(bird.pos)
-
-                # 是否需要更新本粒子历史最好位置
-                if bird.fitness > self.fitness(bird.pbest):
-                    bird.pbest = bird.pos
-
-    # 最终执行
-    def implement(self):
-        # 初始化种群
-        self.initPopulation(self.POP, self.N)
-
-        # 迭代
-        for i in range(self.iter_N):
-            # 更新速度和位置
-            self.update(self.POP)
-            # 更新种群中最好位置
-            self.g_best(self.POP)
-
+# def plot_cv_indices(cv, X, y, group, ax, n_splits, lw=10):
+#     """Create a sample plot for indices of a cross-validation object."""
+#
+#     # Generate the training/testing visualizations for each CV split
+#     for ii, (tr, tt) in enumerate(cv.split(X=X, y=y, groups=group)):
+#         # Fill in indices with the training/test groups
+#         indices = np.array([np.nan] * len(X))
+#         indices[tt] = 1
+#         indices[tr] = 0
+#
+#         # Visualize the results
+#         ax.scatter(
+#             range(len(indices)),
+#             [ii + 0.5] * len(indices),
+#             c=indices,
+#             marker="_",
+#             lw=lw,
+#             cmap=cmap_cv,
+#             vmin=-0.2,
+#             vmax=1.2,
+#         )
+#
+#     # Plot the data classes and groups at the end
+#     ax.scatter(
+#         range(len(X)), [ii + 1.5] * len(X), c=y, marker="_", lw=lw, cmap=cmap_data
+#     )
+#
+#     ax.scatter(
+#         range(len(X)), [ii + 2.5] * len(X), c=group, marker="_", lw=lw, cmap=cmap_data
+#     )
+#
+#     # Formatting
+#     yticklabels = list(range(n_splits)) + ["class", "group"]
+#     ax.set(
+#         yticks=np.arange(n_splits + 2) + 0.5,
+#         yticklabels=yticklabels,
+#         xlabel="Sample index",
+#         ylabel="CV iteration",
+#         ylim=[n_splits + 2.2, -0.2],
+#         xlim=[0, 100],
+#     )
+#     ax.set_title("{}".format(type(cv).__name__), fontsize=15)
+#     return ax
 
 class DeBest:
     '''
@@ -441,33 +379,36 @@ class DeBest:
         self.errors = self.errors[:self.it+1]
         return self
 
-def PlotResultMyPSO():
-    pso = ApolloidPSO()
-    pso.implement()
+class MultiPredictor (BaseEstimator, TransformerMixin):
+    '''
+    This is a class that extends the `BaseEstimator` and `TransformerMixin` classes from Scikit-learn.
+    It takes a list of predictor models in its constructor and implements the `fit`, `transform`, `predict`,
+    and `decision_function` methods. `fit` returns the class instance, `transform` returns the input data unchanged,
+    `predict` calls `predict` on each predictor model and returns the results as a 2D array
+    where each row is a prediction for a single input,
+    and `decision_function` calls `decision_function` on each predictor model and returns the results as a 1D array.
+    '''
+    def __init__(self, predictors):
+        self.predictors = predictors
 
-    best_x = 0
-    best_y = 0
-    for ind in pso.POP:
-        # print("x=", ind.pos, "f(x)=", ind.fitness)
-        if ind.fitness > best_y:
-            best_y = ind.fitness
-            best_x = ind.pos
-    print(best_y)
-    print(best_x)
+    def fit(self, X, y=None):
+        return self
 
-    x = np.linspace(-10, 10, 100000)
+    def transform(self, X, y=None):
+        return X
 
+    def predict(self, X):
+        y =np.array([e.predict(X) for e in self.predictors])
+        return y.T.squeeze()
 
-    def fun(x):
-        return x + 16 * np.sin(5 * x) + 10 * np.cos(4 * x)
-
-
-    y = fun(x)
-    plt.plot(x, y)
-
-    plt.scatter(best_x, best_y, c='r', label='best point')
-    plt.legend()
-    plt.show()
+    def decision_function(self, X):
+        '''
+        now no use
+        :param X:
+        :return:
+        '''
+        y =np.array([e.decision_function(X) for e in self.predictors]).squeeze()
+        return y
 
 
 if __name__ == '__main__':

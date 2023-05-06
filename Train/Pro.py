@@ -208,8 +208,6 @@ def RestoreNormalizedData():
     scaling_index = pd.DataFrame(scaling_index)
     scaling_index.to_csv('../Input/scalingNor.txt', sep = ' ', index = False, header=False)
 
-
-
 def GerSelectedMatrix(selectedGrid: list, selectedSection: list, numGridQuarter: int, numSection: int):
     '''
     Generate the data of sensors selector.
@@ -283,6 +281,7 @@ if __name__ == '__main__':
     # field2 = pd.read_csv('../Input/powerIAEA8480.txt', delimiter=' ', header=None, dtype=float)
     # field = pd.concat([field1, field2], ignore_index=True)
     # field.to_csv('..\Input\powerIAEA18480.txt', sep=' ', index=False, header=False)
+
 
     # # 5517
     # POD(r=50, pathin='..\Input\power5517.out', pathoutAlpha=r'..\Input\alpha5517.txt',
