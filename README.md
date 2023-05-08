@@ -1,7 +1,7 @@
 
-author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Chenjie Song'
+author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Haicheng Huang', 'Chenjie Song'
 
-# Apolloid 1.0
+# NRDTML 1.0
 ## This is the instruction of for POD process in reactorDt第一代设计
 
 + Overview:
@@ -51,7 +51,8 @@ author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Chenjie Song'
 ## Pro.py : only being used once
 ## ProSub.py : can be used for a seconde time
 ## Read.py
-## 
+## Optimize.py : 
++ In our whole process, the data was normalized.
 
 
 
@@ -84,7 +85,7 @@ author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Chenjie Song'
 + 'PowerData.txt': (23997, 4956) # 还未实现
 + 'power18480.out': (1,1) #useless
 
-## Apolloid 2.0
+## NRDTML 2.0
 
 ### Input
 + 'inpower18480.out': (18480, 9),
@@ -104,8 +105,10 @@ author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Chenjie Song'
 + 'Y10.txt': (10,84)
 + 'Inpower10.txt': (10,4)
 + 'sensors.txt': (84, 1456)
-+ 'knntest_input.pkl': (924, 4)
-+ 'knntest_output.pkl': (924, 50)
++ 'knntest_input.pkl': (4620, 4)
++ 'knntest_output.pkl': (4620, 50)
++ 'knntrain_input': (13860, 4)
++ 'knntrain_output': (13860, 50)
 + 'inpowerNor18480_4.txt': (18480, 4) # the normalized data
 + 'scalingNor.txt': (4, 4) # the scaling factors for the input data.
 
