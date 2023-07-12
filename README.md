@@ -1,4 +1,4 @@
-
+The first generation of this project.
 author = 'HELIN GONG', 'Lizhan Hong', 'Junyu Pan', 'Chenxi Yang', 'Haicheng Huang', 'Chenjie Song'
 
 # NRDTML 1.0
